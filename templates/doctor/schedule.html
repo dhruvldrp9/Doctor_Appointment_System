@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="row">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h4 class="mb-0">Manage Your Schedule</h4>
+                </div>
+                <div class="card-body">
+                    <div class="weekly-schedule">
+                        {% set days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] %}
+                        {% for day in days %}
+                            {% set day_index = loop.index0 %}
+                            <div class="day-schedule mb-4">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <h5 class="day-header mb-0">{{ day }}</h5>
+                                    <button class="btn btn-outline-primary btn-sm" 
+                                            onclick="showAddScheduleModal({{ day_index }})"
+                                            title="Add availability for {{ day }}">
+                                        <i class="fas fa-plus"></i> Add Time Slot
+                                    </button>
+                                </div>
+                                <div class="time-slots d-flex flex-wrap gap-2 mt-3">
+                                    {% if schedules_by_day[day_index] %}
+                                        {% for schedule in schedules_by_day[day_index] %}
+                                            <div class="time-slot-card">
+                                                <div class="time-slot-header">
+                                                    <span class="time-range">
+                                                        {{ schedule.start_time.strftime('%I:%M %p') }} - 
+                                                        {{ schedule.end_time.strftime('%I:%M %p') }}
+                                                    </span>
+                                                    <button class="btn btn-danger btn-sm ms-2" 
+                                                            onclick="deleteSchedule({{ schedule.id }})"
+                                                            title="Remove this schedule">
+                                                        <i class="fas fa-times"></i>
+                                                    </button>
+                                                </div>
+                                                <div class="time-slot-details">
+                                                    <small class="text-muted">
+                                                        {{ schedule.slot_duration }} min appointments
+                                                    </small>
+                                                </div>
+                                            </div>
+                                        {% endfor %}
+                                    {% else %}
+                                        <div class="text-muted">
+                                            No availability set for {{ day }}
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h4 class="mb-0">Quick Stats</h4>
+                </div>
+                <div class="card-body">
+                    <div class="stat-item mb-3">
+                        <h6>Working Days</h6>
+                        {% set working_days = schedules_by_day.values()|selectattr('1')|list|length %}
+                        <h3>{{ working_days }}/7</h3>
+                    </div>
+                    <div class="stat-item mb-3">
+                        <h6>Today's Appointments</h6>
+                        <h3 id="todayAppointments">Loading...</h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Schedule Modal -->
+<div class="modal fade" id="scheduleModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add Availability</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="scheduleForm" method="POST" action="{{ url_for('doctor.manage_schedule') }}">
+                    <input type="hidden" id="day" name="day" value="">
+                    <div class="mb-3">
+                        <label for="start_time" class="form-label">Start Time</label>
+                        <input type="time" class="form-control" id="start_time" name="start_time" 
+                               min="08:00" max="17:00" required>
+                        <div class="form-text">Select a time between 8:00 AM and 5:00 PM</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="end_time" class="form-label">End Time</label>
+                        <input type="time" class="form-control" id="end_time" name="end_time"
+                               min="09:00" max="18:00" required>
+                        <div class="form-text">Select a time between 9:00 AM and 6:00 PM</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="slot_duration" class="form-label">Appointment Duration</label>
+                        <select class="form-select" id="slot_duration" name="slot_duration">
+                            <option value="15">15 minutes</option>
+                            <option value="30" selected>30 minutes</option>
+                            <option value="45">45 minutes</option>
+                            <option value="60">1 hour</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Save Schedule</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.weekly-schedule {
+    background: #fff;
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.day-header {
+    color: #1976D2;
+    font-weight: 500;
+    padding-bottom: 5px;
+}
+
+.time-slots {
+    min-height: 50px;
+    padding: 10px;
+    background: #f8f9fa;
+    border-radius: 6px;
+}
+
+.time-slot-card {
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    padding: 10px;
+    min-width: 200px;
+}
+
+.time-slot-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.time-range {
+    font-weight: 500;
+    color: #1976D2;
+}
+
+.time-slot-details {
+    margin-top: 5px;
+}
+
+.stat-item {
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    text-align: center;
+}
+
+.stat-item h6 {
+    color: #666;
+    margin-bottom: 5px;
+}
+
+.stat-item h3 {
+    color: #1976D2;
+    margin: 0;
+}
+</style>
+
+<script>
+function showAddScheduleModal(dayIndex) {
+    document.getElementById('day').value = dayIndex;
+    new bootstrap.Modal(document.getElementById('scheduleModal')).show();
+}
+
+function deleteSchedule(scheduleId) {
+    if (confirm('Are you sure you want to remove this time slot? Any existing appointments will need to be rescheduled.')) {
+        window.location.href = `{{ url_for('doctor.delete_schedule', schedule_id=0) }}`.replace('0', scheduleId);
+    }
+}
+
+// Validate time inputs
+document.getElementById('start_time').addEventListener('change', function() {
+    const endTime = document.getElementById('end_time');
+    endTime.min = this.value;
+    if (endTime.value && endTime.value <= this.value) {
+        endTime.value = '';
+    }
+});
+
+// Fetch today's appointments count
+fetch('{{ url_for('doctor.today_appointments_count') }}')
+    .then(response => response.json())
+    .then(data => {
+        document.getElementById('todayAppointments').textContent = data.count;
+    })
+    .catch(() => {
+        document.getElementById('todayAppointments').textContent = 'N/A';
+    });
+</script>
+{% endblock %}

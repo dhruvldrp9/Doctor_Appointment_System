@@ -1,0 +1,293 @@
+import sounddevice as sd
+import wavio
+import numpy as np
+from datetime import datetime
+import os
+import whisper
+import torch
+from transformers import VitsModel, AutoTokenizer
+import soundfile as sf
+import time
+from typing import Dict, List
+from openai import OpenAI
+import json
+
+class GPTConversationSystem:
+    def __init__(self, openai_api_key: str):
+        """Initialize the conversation system with required models and settings."""
+        # Initialize OpenAI client
+        self.client = OpenAI(api_key=openai_api_key)
+        
+        # Initialize Whisper for STT
+        print("Loading Speech-to-Text model...")
+        self.stt_model = whisper.load_model("small", device="cpu")
+        
+        # Initialize TTS
+        print("Loading Text-to-Speech model...")
+        self.tts_model = VitsModel.from_pretrained("facebook/mms-tts-eng")
+        self.tts_tokenizer = AutoTokenizer.from_pretrained("facebook/mms-tts-eng")
+        
+        # Audio recording settings
+        self.samplerate = 44100
+        self.channels = 1
+        
+        # Conversation history with carefully crafted system prompt
+        self.conversation_history = [
+            {
+                "role": "system",
+                "content": """You are an advanced AI assistant engaging in a natural spoken conversation. Your key characteristics are:
+
+                    1. Conversational Style:
+                    - Speak naturally and warmly, as if in a face-to-face conversation
+                    - Use a friendly, engaging tone while maintaining professionalism
+                    - Keep responses concise (2-3 sentences) as they will be spoken aloud
+                    - Include appropriate conversational fillers and acknowledgments
+
+                    2. Response Structure:
+                    - Directly address the user's input
+                    - Stay focused on the current topic
+                    - Use natural transitions between topics
+                    - Include occasional thoughtful questions to maintain engagement
+
+                    3. Personality Traits:
+                    - Show genuine interest in the conversation
+                    - Express empathy and understanding
+                    - Be knowledgeable but humble
+                    - Maintain consistency in personality
+
+                    4. Guidelines:
+                    - Avoid overly formal language or technical jargon
+                    - Don't repeat the user's words verbatim
+                    - Keep responses informative but brief
+                    - Express opinions when appropriate while respecting different viewpoints"""
+            }
+        ]
+        
+        # Track conversation duration for context management
+        self.conversation_start = time.time()
+        self.last_context_refresh = time.time()
+        self.context_refresh_interval = 600  # Refresh context every 10 minutes
+        
+        # Create audio directory if it doesn't exist
+        self.audio_dir = "audio_recordings"
+        os.makedirs(self.audio_dir, exist_ok=True)
+
+    def get_gpt_response(self, user_input: str) -> str:
+        """Get response from GPT model"""
+        try:
+            # Check if we need to refresh context
+            current_time = time.time()
+            if current_time - self.last_context_refresh > self.context_refresh_interval:
+                # Keep system prompt and last 2 exchanges for continuity
+                self.conversation_history = [
+                    self.conversation_history[0],  # System prompt
+                    *self.conversation_history[-4:]  # Last 2 exchanges
+                ]
+                self.last_context_refresh = current_time
+            
+            # Add user message to conversation
+            self.conversation_history.append({
+                "role": "user",
+                "content": user_input
+            })
+            
+            # Get response from GPT
+            response = self.client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=self.conversation_history,
+                temperature=0.7,
+                max_tokens=100,
+                top_p=0.9,
+                frequency_penalty=0.5,
+                presence_penalty=0.5
+            )
+            
+            # Extract the response text correctly
+            assistant_response = response.choices[0].message.content.strip()
+            
+            # Add assistant's response to history
+            self.conversation_history.append({
+                "role": "assistant",
+                "content": assistant_response
+            })
+            
+            return assistant_response
+            
+        except Exception as e:
+            print(f"Error getting GPT response: {str(e)}")
+            return "I apologize, but I encountered an error. Could you please repeat that?"
+
+    def speak_text(self, text: str) -> None:
+        """Generate and play text-to-speech"""
+        print(f"\nAssistant: {text}")
+        
+        try:
+            # Generate speech using VITS
+            inputs = self.tts_tokenizer(text, return_tensors="pt")
+            with torch.no_grad():
+                output = self.tts_model(**inputs).waveform
+            
+            # Convert to numpy array and normalize
+            audio_data = output.squeeze().numpy()
+            audio_data = audio_data / np.abs(audio_data).max()
+            
+            # Save and play
+            temp_file = os.path.join(self.audio_dir, "temp_speech.wav")
+            sf.write(temp_file, audio_data, self.tts_model.config.sampling_rate)
+            data, samplerate = sf.read(temp_file)
+            sd.play(data, samplerate)
+            sd.wait()
+            os.remove(temp_file)
+        except Exception as e:
+            print(f"Error in text-to-speech: {str(e)}")
+            print("Continuing with text-only output...")
+
+    def record_audio(self) -> str:
+        """Record audio until silence is detected"""
+        print("\nListening... (speak your response)")
+        
+        chunks = []
+        silence_threshold = 0.02
+        silence_duration = 0
+        max_silence = 1.5  # Maximum silence duration in seconds
+        recording_timeout = 30  # Maximum recording duration in seconds
+        start_time = time.time()
+        
+        try:
+            with sd.InputStream(samplerate=self.samplerate, channels=self.channels) as stream:
+                while True:
+                    data, _ = stream.read(self.samplerate // 10)  # Read 0.1 seconds of audio
+                    chunks.append(data.copy())
+                    
+                    # Check if the current chunk is silence
+                    if np.abs(data).mean() < silence_threshold:
+                        silence_duration += 0.1
+                        if silence_duration >= max_silence:
+                            break
+                    else:
+                        silence_duration = 0
+                    
+                    # Check for timeout
+                    if time.time() - start_time > recording_timeout:
+                        print("\nMaximum recording duration reached.")
+                        break
+
+        except KeyboardInterrupt:
+            print("\nRecording interrupted by user.")
+        except Exception as e:
+            print(f"\nError during recording: {str(e)}")
+            return ""
+
+        # Save the recording
+        if chunks:
+            recording = np.concatenate(chunks)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = os.path.join(self.audio_dir, f"recording_{timestamp}.wav")
+            wavio.write(filename, recording, self.samplerate, sampwidth=3)
+            return filename
+        
+        return ""
+
+    def transcribe_audio(self, audio_file: str) -> str:
+        """Transcribe audio file to text"""
+        if not audio_file or not os.path.exists(audio_file):
+            return ""
+            
+        try:
+            result = self.stt_model.transcribe(audio_file, **{
+                "language": "en",
+                "task": "transcribe",
+                "fp16": False,
+            })
+            return result["text"].strip()
+        except Exception as e:
+            print(f"Error in transcription: {str(e)}")
+            return ""
+        finally:
+            try:
+                os.remove(audio_file)
+            except:
+                pass
+
+    def have_conversation(self):
+        """Conduct an ongoing conversation until user says goodbye"""
+        print("\nStarting conversation...")
+        print("Speak naturally. Say 'goodbye' or 'exit' to end the conversation.")
+        
+        try:
+            while True:
+                # Record and transcribe user's speech
+                audio_file = self.record_audio()
+                if not audio_file:
+                    print("No audio recorded. Please try again.")
+                    continue
+                    
+                user_text = self.transcribe_audio(audio_file)
+                if not user_text:
+                    print("Could not understand audio. Please try again.")
+                    continue
+                    
+                print(f"\nYou: {user_text}")
+                
+                # Check for exit conditions
+                if any(word in user_text.lower() for word in ['goodbye', 'exit', 'quit', 'bye']):
+                    farewell = "Goodbye! It was nice talking to you."
+                    self.speak_text(farewell)
+                    break
+                
+                # Get and speak AI response
+                ai_response = self.get_gpt_response(user_text)
+                self.speak_text(ai_response)
+                time.sleep(0.5)  # Brief pause before next turn
+        
+        except KeyboardInterrupt:
+            print("\nConversation interrupted by user.")
+        except Exception as e:
+            print(f"\nAn error occurred: {str(e)}")
+            print("Please make sure your microphone is properly connected and you have all required permissions.")
+        finally:
+            # Cleanup
+            try:
+                sd.stop()
+            except:
+                pass
+
+def check_dependencies():
+    """Check if all required dependencies are installed"""
+    required_packages = [
+        'sounddevice', 'wavio', 'numpy', 'whisper', 'torch',
+        'transformers', 'soundfile', 'openai'
+    ]
+    
+    missing_packages = []
+    for package in required_packages:
+        try:
+            __import__(package)
+        except ImportError:
+            missing_packages.append(package)
+    
+    return missing_packages
+
+if __name__ == "__main__":
+    # Check dependencies first
+    missing_packages = check_dependencies()
+    if missing_packages:
+        print("Missing required packages. Please install them using:")
+        print(f"pip install {' '.join(missing_packages)}")
+        exit(1)
+    
+    # Get OpenAI API key from environment or user input
+    api_key = os.getenv('OPENAI_API_KEY')
+    if not api_key:
+        api_key = input("Please enter your OpenAI API key: ")
+        if not api_key:
+            print("API key is required to continue.")
+            exit(1)
+    
+    try:
+        system = GPTConversationSystem(api_key)
+        system.have_conversation()
+    except KeyboardInterrupt:
+        print("\nProgram terminated by user.")
+    except Exception as e:
+        print(f"\nProgram terminated due to error: {str(e)}")

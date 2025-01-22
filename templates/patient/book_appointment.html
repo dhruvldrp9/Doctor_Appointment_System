@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h4 class="mb-0">Book an Appointment</h4>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('patient.book_appointment') }}" id="appointmentForm">
+                        <div class="mb-3">
+                            <label for="doctor_id" class="form-label">Select Doctor</label>
+                            <select class="form-select" id="doctor_id" name="doctor_id" required>
+                                <option value="">Choose a doctor...</option>
+                                {% for doctor in doctors %}
+                                <option value="{{ doctor.id }}">
+                                    Dr. {{ doctor.first_name }} {{ doctor.last_name }}
+                                    {% if doctor.specialization %}
+                                    - {{ doctor.specialization.name }}
+                                    {% endif %}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="datetime" class="form-label">Select Available Time Slot</label>
+                            <select class="form-select" id="datetime" required disabled>
+                                <option value="">First select a doctor...</option>
+                            </select>
+                            <input type="hidden" id="date" name="date">
+                            <input type="hidden" id="time" name="time">
+                            <div class="form-text">Only showing available slots for the next 7 days</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="notes" class="form-label">Notes (Optional)</label>
+                            <textarea class="form-control" id="notes" name="notes" rows="3" 
+                                      placeholder="Any specific concerns or information for the doctor?"></textarea>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary">Request Appointment</button>
+                    </form>
+
+                    <div id="loadingSlots" class="text-center mt-3 d-none">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading available slots...</span>
+                        </div>
+                        <p class="mt-2">Loading available slots...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const doctorSelect = document.getElementById('doctor_id');
+    const datetimeSelect = document.getElementById('datetime');
+    const dateInput = document.getElementById('date');
+    const timeInput = document.getElementById('time');
+    const loadingIndicator = document.getElementById('loadingSlots');
+
+    // Update available time slots when doctor is selected
+    doctorSelect.addEventListener('change', async function() {
+        datetimeSelect.innerHTML = '<option value="">Loading available slots...</option>';
+        datetimeSelect.disabled = true;
+        dateInput.value = '';
+        timeInput.value = '';
+
+        if (!this.value) {
+            return;
+        }
+
+        try {
+            loadingIndicator.classList.remove('d-none');
+
+            const response = await fetch(`/patient/api/doctor/${this.value}/available_slots`);
+            const data = await response.json();
+
+            if (data.error) {
+                throw new Error(data.error);
+            }
+
+            datetimeSelect.innerHTML = '<option value="">Select a time slot...</option>';
+
+            if (data.slots.length === 0) {
+                datetimeSelect.innerHTML = '<option value="">No available slots for next 7 days</option>';
+                return;
+            }
+
+            // Group slots by date
+            const slotsByDate = {};
+            data.slots.forEach(slot => {
+                if (!slotsByDate[slot.date]) {
+                    slotsByDate[slot.date] = [];
+                }
+                slotsByDate[slot.date].push(slot);
+            });
+
+            // Create option groups by date
+            Object.entries(slotsByDate).forEach(([date, dateSlots]) => {
+                const group = document.createElement('optgroup');
+                group.label = new Date(date).toLocaleDateString('en-US', { 
+                    weekday: 'long', 
+                    year: 'numeric', 
+                    month: 'long', 
+                    day: 'numeric' 
+                });
+
+                dateSlots.forEach(slot => {
+                    const option = document.createElement('option');
+                    option.value = JSON.stringify({
+                        date: slot.date,
+                        time: slot.time
+                    });
+                    option.textContent = new Date(slot.datetime).toLocaleTimeString('en-US', {
+                        hour: 'numeric',
+                        minute: '2-digit',
+                        hour12: true
+                    });
+                    group.appendChild(option);
+                });
+
+                datetimeSelect.appendChild(group);
+            });
+
+            datetimeSelect.disabled = false;
+
+        } catch (error) {
+            console.error('Error fetching available slots:', error);
+            datetimeSelect.innerHTML = '<option value="">Error loading slots. Please try again.</option>';
+        } finally {
+            loadingIndicator.classList.add('d-none');
+        }
+    });
+
+    // Update hidden inputs when time slot is selected
+    datetimeSelect.addEventListener('change', function() {
+        if (this.value) {
+            try {
+                const selectedSlot = JSON.parse(this.value);
+                dateInput.value = selectedSlot.date;
+                timeInput.value = selectedSlot.time;
+            } catch (error) {
+                console.error('Error parsing selected slot:', error);
+            }
+        }
+    });
+});
+</script>
+{% endblock %}

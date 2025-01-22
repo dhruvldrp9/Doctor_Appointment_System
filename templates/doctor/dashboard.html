@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <h2 class="mb-4">Doctor Dashboard</h2>
+
+    <div class="row">
+        <!-- Today's Schedule -->
+        <div class="col-md-8">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Today's Schedule</h5>
+                </div>
+                <div class="card-body">
+                    {% if today_appointments %}
+                        <div class="timeline">
+                            {% for appointment in today_appointments %}
+                            <div class="timeline-item">
+                                <div class="timeline-time">
+                                    {{ appointment.datetime.strftime('%I:%M %p') }}
+                                </div>
+                                <div class="timeline-content">
+                                    <div class="appointment-card">
+                                        <h6>{{ appointment.patient.first_name }} {{ appointment.patient.last_name }}</h6>
+                                        <span class="badge bg-{{ 'success' if appointment.status == 'confirmed' else 'warning' if appointment.status == 'pending' else 'danger' }}">
+                                            {{ appointment.status }}
+                                        </span>
+                                        {% if appointment.notes %}
+                                        <p class="text-muted small mt-2">{{ appointment.notes }}</p>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="text-center py-4">
+                            <i class="fas fa-calendar-check fa-3x text-muted mb-3"></i>
+                            <p>No appointments scheduled for today</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Quick Stats -->
+        <div class="col-md-4">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Quick Actions</h5>
+                </div>
+                <div class="card-body">
+                    <div class="d-grid gap-2">
+                        <a href="{{ url_for('doctor.manage_schedule') }}" class="btn btn-primary">
+                            <i class="fas fa-clock"></i> Manage Schedule
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pending Requests -->
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Pending Requests</h5>
+                </div>
+                <div class="card-body">
+                    {% if pending_appointments %}
+                        <div class="pending-list">
+                            {% for appointment in pending_appointments %}
+                            <div class="pending-item">
+                                <div class="d-flex justify-content-between align-items-start mb-2">
+                                    <div>
+                                        <h6 class="mb-1">{{ appointment.patient.first_name }} {{ appointment.patient.last_name }}</h6>
+                                        <small class="text-muted">
+                                            {{ appointment.datetime.strftime('%Y-%m-%d %I:%M %p') }}
+                                        </small>
+                                    </div>
+                                </div>
+                                <div class="btn-group btn-group-sm">
+                                    <a href="{{ url_for('doctor.handle_appointment', appointment_id=appointment.id, action='confirm') }}" 
+                                       class="btn btn-success">Accept</a>
+                                    <a href="{{ url_for('doctor.handle_appointment', appointment_id=appointment.id, action='cancel') }}" 
+                                       class="btn btn-danger">Decline</a>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <p class="text-muted text-center mb-0">No pending requests</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Upcoming Appointments -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Upcoming Appointments</h5>
+                </div>
+                <div class="card-body">
+                    {% if upcoming_appointments %}
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Date & Time</th>
+                                        <th>Patient</th>
+                                        <th>Status</th>
+                                        <th>Notes</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for appointment in upcoming_appointments %}
+                                    <tr>
+                                        <td>{{ appointment.datetime.strftime('%Y-%m-%d %I:%M %p') }}</td>
+                                        <td>{{ appointment.patient.first_name }} {{ appointment.patient.last_name }}</td>
+                                        <td>
+                                            <span class="badge bg-{{ 'success' if appointment.status == 'confirmed' else 'warning' if appointment.status == 'pending' else 'danger' }}">
+                                                {{ appointment.status }}
+                                            </span>
+                                        </td>
+                                        <td>{{ appointment.notes or '-' }}</td>
+                                        <td>
+                                            {% if appointment.status == 'pending' %}
+                                            <div class="btn-group btn-group-sm">
+                                                <a href="{{ url_for('doctor.handle_appointment', appointment_id=appointment.id, action='confirm') }}" 
+                                                   class="btn btn-success">Accept</a>
+                                                <a href="{{ url_for('doctor.handle_appointment', appointment_id=appointment.id, action='cancel') }}" 
+                                                   class="btn btn-danger">Decline</a>
+                                            </div>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <p class="text-muted text-center mb-0">No upcoming appointments</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.timeline {
+    position: relative;
+    padding: 20px 0;
+}
+
+.timeline-item {
+    display: flex;
+    margin-bottom: 20px;
+}
+
+.timeline-time {
+    width: 100px;
+    padding: 10px;
+    text-align: right;
+    font-weight: bold;
+    color: #1976D2;
+}
+
+.timeline-content {
+    flex: 1;
+    padding-left: 20px;
+    border-left: 2px solid #e0e0e0;
+    position: relative;
+}
+
+.timeline-content:before {
+    content: '';
+    position: absolute;
+    left: -7px;
+    top: 15px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #1976D2;
+}
+
+.appointment-card {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 15px;
+    margin-left: 15px;
+}
+
+.pending-list {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.pending-item {
+    padding: 15px;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.pending-item:last-child {
+    border-bottom: none;
+}
+</style>
+{% endblock %}
