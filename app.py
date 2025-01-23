@@ -25,7 +25,10 @@ def create_app():
 
     # Configuration
     app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev_key_123")
-    app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL")
+    app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
+        "DATABASE_URL", 
+        "postgresql://postgres:12345@localhost/patientapp"
+    )
     app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
         "pool_recycle": 300,
         "pool_pre_ping": True,
